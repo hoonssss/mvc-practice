@@ -1,17 +1,13 @@
 package org.example.mvc;
 
 import java.io.IOException;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.HashMap;
 import java.util.List;
-import javax.servlet.RequestDispatcher;
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import org.example.mvc.controller.Controller;
 import org.example.mvc.view.JspViewResolver;
 import org.example.mvc.view.ModelAndView;
 import org.example.mvc.view.View;
@@ -31,28 +27,35 @@ public class DispatcherServlet extends HttpServlet {
 
     private List<HandlerAdapter> handlerAdapters;
 
-    private HandelerMapping hm;
+    private List<HandelerMapping> handelerMappings;
 
     @Override
     public void init() throws ServletException {
         RequestMappingHandleMapping rmhm = new RequestMappingHandleMapping();
         rmhm.init();
 
-        hm = rmhm;
-
-        handlerAdapters = List.of(new SimpleControllerHandlerAdapter());
-            viewResolvers = Collections.singletonList(new JspViewResolver());
+        AnnotationHandlerMapping ahm = new AnnotationHandlerMapping("org.example");
+        ahm.init();
+        handelerMappings = List.of(rmhm, ahm);
+        handlerAdapters = List.of(new SimpleControllerHandlerAdapter(), new AnnotationHandlerAdapter());
+        viewResolvers = Collections.singletonList(new JspViewResolver());
     }
 
     @Override
     protected void service(HttpServletRequest request, HttpServletResponse response)
         throws ServletException, IOException {
         log.info("DispatcherServletService");
+        String requestURI = request.getRequestURI();
+        RequestMethod requestMethod = RequestMethod.valueOf(request.getMethod());
 
         try {
             //key에 맞는 uri가져옴
-            Object handler = hm.findHandler(new HandlerKey(RequestMethod.valueOf(request.getMethod()), request.getRequestURI()));
-            //Controller handler에 handleRequest 메서드를 호출하여 요청을 처리하고 뷰 이름을 가져옴
+            Object handler = handelerMappings
+                .stream()
+                .filter(hm -> hm.findHandler(new HandlerKey(requestMethod, requestURI)) != null)
+                .map(hm -> hm.findHandler(new HandlerKey(requestMethod, requestURI)))
+                .findFirst()
+                .orElseThrow(() -> new ServletException("No handler for [" + requestMethod + ", " + requestURI + "]"));
 
             HandlerAdapter handlerAdapter = handlerAdapters.stream()
                 .filter(ha -> ha.supports(handler))
@@ -64,7 +67,7 @@ public class DispatcherServlet extends HttpServlet {
 
             for (ViewResolver viewResolver : viewResolvers) {
                 View view = viewResolver.resolveView(modelAndView.getViewName());
-                view.render(modelAndView.getModel(), request,response);
+                view.render(modelAndView.getModel(), request, response);
             }
         } catch (Exception e) {
             log.error("excption [{}]", e.getMessage());
